@@ -30,12 +30,72 @@
 #include <iostream>
 #include <ftw.h>
 #include <sys/ioctl.h>
+#include <openssl/sha.h>
+#include <iostream>
+#include <string.h>
+#include <fstream>
+#include <string>
+#include <sys/stat.h> 
 
 using namespace std;
-#define PORT 1313
+#define PORT 1314
+struct stat stat_buf;
+string clientIP_Port,tracker1IP_Port,tracker2IP_Port,logfile,client_IP,client_Port,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port,filesize;
+char* current_Path = getenv ("PWD");
+string currentpath=current_Path;
+string findname(string str1) //finding current directory
+{
+    int i=str1.length()-1;
+    string str2;
+    while(str1[i]!='/')
+        --i;
 
-string clientIP_Port,tracker1IP_Port,tracker2IP_Port,logfile,client_IP,client_Port,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port;
-
+    str2=str1.substr(i+1,str1.length()-i-1); 
+    return str2;
+}
+string findpath(string tempstr) //finding parent path
+{
+    int i=tempstr.length()-1;
+    while(tempstr[i]!='/')
+        i--;
+    //tempstr[i]='\0';
+    return tempstr.substr(0,i);
+}
+string makefullpath(string str1,string currentpath) //making absolute path
+{
+  //  cout<<currentpath<<"\n";
+    string str2;
+    if(str1[0]=='~')
+        return str1.substr(1);
+    else if(str1[0]=='/')
+    {
+        //str2.append("~");
+        //str2.append(str1);
+        return str1;
+    }
+    else if(str1[0]=='.' && str1[1]!='.')
+    {
+        //str2.append("~");
+        str2.append(currentpath);
+        str2.append(str1.begin()+1,str1.end());
+        return str2;   
+    }
+    else if(str1[0]=='.' && str1[1]=='.')
+    {
+        currentpath=findpath(currentpath);
+       // cout<<currentpath<<":";
+       // cout<<str1.substr(2);
+        return makefullpath(str1.substr(3),currentpath);
+    }
+    else
+    {
+        //str2.append("~");
+        str2.append(currentpath);
+        str2.append("/");
+        str2.append(str1);
+        return str2;
+    }
+}
 void findIP(string clientIP_Port,string tracker1IP_Port,string tracker2IP_Port)
 {
     size_t found = clientIP_Port.find(':');
@@ -132,13 +192,16 @@ int main(int argc, char *argv[])
     statusbar("Enter Command:");
 
     cout<<" ";
-    
+    // char* current_Path;
+    // current_Path = getenv ("PWD");
+    // string currentpath=current_Path;
+    //cout<<current_Path<<flush;
     clientIP_Port=argv[1];
     tracker1IP_Port=argv[2];
     tracker2IP_Port=argv[3];
     
     //logfile=argv[4];
-    // findIP(clientIP_Port,tracker1IP_Port,tracker2IP_Port);
+    findIP(clientIP_Port,tracker1IP_Port,tracker2IP_Port);
 
     // cout<<clientIP_Port<<"\n"<<flush;
     // cout<<tracker1IP_Port<<"\n"<<flush;
@@ -224,15 +287,205 @@ int main(int argc, char *argv[])
                 if(v[0]=="share")
                 {
 
-                        string local_file_path=v[1];
+
+                        string local_file_path=makefullpath(v[1],currentpath);
                         string filename_with_extension=v[2];
+                        cout<<local_file_path<<":"<<filename_with_extension<<":";
+                        
+                        stat(local_file_path.c_str(),&stat_buf);
+                        
+                        int size=stat_buf.st_size;
+                        int tempsize=size;
+                        
+                        filesize=to_string(size);
+                        
+                        unsigned char digest[20];
+                        char mdString[SHA_DIGEST_LENGTH*2];
+                        
+                        string SH1, SH2;
+                        std::fstream fin,fout;
+                        
+                        fin.open(local_file_path, ios_base::in|ios_base::binary);
+                        fout.open(filename_with_extension, ios_base::out);
+
+                        fout << tracker1_IP.c_str() << ":";
+                        fout << tracker1_Port.c_str() << "\n";
+                        fout << tracker2_IP.c_str() << ":";
+                        fout << tracker2_Port.c_str() << "\n";
+                        fout << local_file_path.c_str() << "\n";
+                        fout << filesize.c_str() << "\n";
+
+
+                        while (tempsize>0) 
+                            {   
+
+                                if(tempsize>1024*512)
+                                {
+                                    char buffer[1024*512];
+                                    fin.read(buffer,1024*512);
+                                    SHA1((unsigned char*)&buffer, strlen(buffer), (unsigned char*)&digest); 
+                                    for (int i = 0; i <20; i++)
+                                        sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                                    SH1=mdString;
+                                    SH2.append(SH1.substr(0,20));                  
+                                }
+                                else
+                                {
+                                    char buffer[tempsize];
+                                    fin.read(buffer,tempsize);
+                                    SHA1((unsigned char*)&buffer, strlen(buffer), (unsigned char*)&digest); 
+                                    for (int i = 0; i <20; i++)
+                                        sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                                    SH1=mdString;
+                                    SH2.append(SH1.substr(0,20)); 
+                                }
+                                tempsize-=1024*512;
+                            }
+
+                        fout << SH2.c_str();
+                        //SH2.clear();
+                        SHA1((unsigned char*)SH2.c_str(), strlen(SH2.c_str()), (unsigned char*)&digest);
+
+                        for (int i = 0; i <20; i++)
+                            sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                        SH1=mdString;
+                        SH1=SH1.substr(0,20);
+                        cout<<SH1;
+                        SH2.clear();
+                        SH2="share|";
+                        SH2.append(findname(local_file_path));
+                        SH2.append("|");
+                        SH2.append(SH1);
+                        SH2.append("|");
+                        SH2.append(client_IP);
+                        SH2.append("|");
+                        SH2.append(client_Port);
+
+                      //  cout<<SH2;
                         //cout<<v[1]<<":"<<v[2];
-                 //   int sock=connection_with_tracker();
-                   // send(sock,"hello",1024,0);
-                  //  printf("Hello message sent\n"); 
-                    //valread=read( sock , buffer, 1024);
+                   int sock=connection_with_tracker();
+                   send(sock,SH2.c_str(),1024,0);
+                   printf("Message sent\n"); 
+                //    valread=read( sock , buffer, 1024);
 
                 }
+                if(v[0]=="get")
+                {
+
+                        unsigned char digest[20];
+                        char mdString[SHA_DIGEST_LENGTH*2];
+
+                        string SH1,SH2="get|";
+                        std::fstream fin,fout;
+
+                        string mtorrent_file_path=makefullpath(v[1],currentpath);
+                        string destinstion_path=makefullpath(v[2],currentpath);
+                        //cout<<local_file_path<<":"<<filename_with_extension<<":";
+                        
+                        fin.open(mtorrent_file_path,ios_base::in|ios_base::binary);
+
+                        for (int i=0; i<5;i++)
+                        {
+                            getline(fin,SH1);
+                        }
+
+                        cout<<SH1;
+                        SHA1((unsigned char*)SH1.c_str(), strlen(SH1.c_str()), (unsigned char*)&digest); 
+
+                        for (int i = 0; i <20; i++)
+                            sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                        
+                        
+                        SH1=mdString;
+                        //SH1.append(mdString);
+                        SH1=SH1.substr(0,20);
+                        SH1.insert(0,"get|");
+                        //SH1.insert(0,"get|");
+                        //SH2.append(SH1);
+                        cout<<SH1<<"\n";
+                        int sock=connection_with_tracker();
+                        send(sock,SH1.c_str(),1024,0);
+                        printf("Message sent\n"); 
+
+                        //string s;
+                        //s << (5);
+
+                       // cout<<SHA1;
+                //         stat(local_file_path.c_str(),&stat_buf);
+                        
+                //         int size=stat_buf.st_size;
+                //         int tempsize=size;
+                        
+                //         filesize=to_string(size);
+                        
+                //         unsigned char digest[20];
+                //         char mdString[SHA_DIGEST_LENGTH*2];
+                        
+                //         string SH1, SH2;
+                //         std::fstream fin,fout;
+                        
+                //         fin.open(local_file_path, ios_base::in|ios_base::binary);
+                //         fout.open(filename_with_extension, ios_base::out);
+
+                //         fout << tracker1_IP.c_str() << ":";
+                //         fout << tracker1_Port.c_str() << "\n";
+                //         fout << tracker2_IP.c_str() << ":";
+                //         fout << tracker2_Port.c_str() << "\n";
+                //         fout << local_file_path.c_str() << "\n";
+                //         fout << filesize.c_str() << "\n";
+
+
+                //         while (tempsize>0) 
+                //             {   
+
+                //                 if(tempsize>1024*512)
+                //                 {
+                //                     char buffer[1024*512];
+                //                     fin.read(buffer,1024*512);
+                //                     SHA1((unsigned char*)&buffer, strlen(buffer), (unsigned char*)&digest); 
+                //                     for (int i = 0; i <20; i++)
+                //                         sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                //                     SH1=mdString;
+                //                     SH2.append(SH1.substr(0,20));                  
+                //                 }
+                //                 else
+                //                 {
+                //                     char buffer[tempsize];
+                //                     fin.read(buffer,tempsize);
+                //                     SHA1((unsigned char*)&buffer, strlen(buffer), (unsigned char*)&digest); 
+                //                     for (int i = 0; i <20; i++)
+                //                         sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                //                     SH1=mdString;
+                //                     SH2.append(SH1.substr(0,20)); 
+                //                 }
+                //                 tempsize-=1024*512;
+                //             }
+
+                //         fout << SH2.c_str();
+                //         //SH2.clear();
+                //         SHA1((unsigned char*)SH2.c_str(), strlen(SH2.c_str()), (unsigned char*)&digest); 
+                //         for (int i = 0; i <20; i++)
+                //             sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                //         SH1=mdString;
+                //         //cout<<SH1;
+                //         SH2.clear();
+                //         SH2="share|";
+                //         SH2.append(findname(local_file_path));
+                //         SH2.append("|");
+                //         SH2.append(SH1);
+                //         SH2.append("|");
+                //         SH2.append(client_IP);
+                //         SH2.append("|");
+                //         SH2.append(client_Port);
+
+                //         cout<<SH2;
+                //         //cout<<v[1]<<":"<<v[2];
+                //    int sock=connection_with_tracker();
+                //    send(sock,SH2.c_str(),1024,0);
+                //    printf("Message sent\n"); 
+                // //    valread=read( sock , buffer, 1024);
+
+                 }
 
 
 
