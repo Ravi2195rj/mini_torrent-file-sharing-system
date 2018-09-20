@@ -11,23 +11,70 @@
 #include <iostream>
 #include <string>
 #include<map>
+#include <fstream>
+#include <sys/stat.h>
 using namespace std;
 
 
 
 #define TRUE   1  
 #define FALSE  0  
-#define PORT 1314
+//#define PORT 1313
      
 
 multimap <string, string> seeder_list;
 multimap <string, string> :: iterator itr;
-string SHA_string,client_IP,client_Port,filename;
+string SHA_string,client_IP,client_Port,filename,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port,tracker1IP_Port,tracker2IP_Port;
+struct stat stat_buf;
 
-string seeder_file="seeder_file.txt";
+string seeder_file="./seeder_file.txt";
+
+void findIP(string tracker1IP_Port,string tracker2IP_Port)
+{
+
+    size_t found1 = tracker1IP_Port.find(':');
+    tracker1_IP=tracker1IP_Port.substr(0,found1);
+    tracker1_Port=tracker1IP_Port.substr(found1+1);
+    
+    size_t found2 = tracker2IP_Port.find(':');
+    tracker2_IP=tracker2IP_Port.substr(0,found2);
+    tracker2_Port=tracker2IP_Port.substr(found2+1);
+}
+
+void update_seeder_list()
+{
+    string tempstr;
+    std::fstream fin;
+
+    if(!(stat(seeder_file.c_str(),&stat_buf)))
+    {
+        fin.open(seeder_file,ios_base::in|ios_base::binary);
+
+      //  seeder_list.insert({SHA_string,client_IP});
+        while(getline(fin,tempstr))
+        {
+            //cout<<"hello:"<<tempstr<<"\n";
+            size_t found = tempstr.find(':');
+            seeder_list.insert({tempstr.substr(0,found),tempstr.substr(found+1)});
+         //   cout<<tempstr.substr(0,found)<<" "<<tempstr.substr(found+1)<<"\n";
+        }
+        for(auto itr = seeder_list.cbegin(); itr != seeder_list.cend(); ++itr)
+        {
+            std::cout << itr->first << " " << itr->second<< "\n";
+        }
+        fin.close();            
+    }
+} 
 
 int main(int argc , char *argv[])   
 {   
+
+    tracker1IP_Port=argv[1];
+    tracker2IP_Port=argv[2];
+    findIP(tracker1IP_Port,tracker2IP_Port);
+
+    update_seeder_list();
+
     int opt = TRUE;   
     int master_socket , addrlen , new_socket , client_socket[100] ,  
           max_clients = 100 , activity, i , valread , sd;   
@@ -67,7 +114,7 @@ int main(int argc , char *argv[])
     //type of socket created  
     address.sin_family = AF_INET;   
     address.sin_addr.s_addr = INADDR_ANY;   
-    address.sin_port = htons( PORT );   
+    address.sin_port = htons(stoi(tracker1_Port));   
          
     //bind the socket to localhost port 1313  
     if (bind(master_socket, (struct sockaddr *)&address, sizeof(address))<0)   
@@ -75,7 +122,7 @@ int main(int argc , char *argv[])
         perror("bind failed");   
         exit(EXIT_FAILURE);   
     }   
-    printf("Listener on port %d \n", PORT);   
+    printf("Listener on port %d \n", stoi(tracker1_Port));   
          
     //try to specify maximum of 100 pending connections for the master socket  
     if (listen(master_socket, 100) < 0)   
@@ -145,6 +192,7 @@ int main(int argc , char *argv[])
 
             size_t found = message.find('|');
             command=message.substr(0,found);
+            
             if(command=="share")
             {
                 cout<<"share command arrived";
@@ -170,46 +218,47 @@ int main(int argc , char *argv[])
                 client_IP.append(":");
                 client_IP.append(client_Port);
 
-                seeder_list.insert({SHA_string,client_IP});
-                cout<<"going inside\n";
-                for (itr = seeder_list.lower_bound(SHA_string); itr != seeder_list.upper_bound(SHA_string); ++itr) 
-                { 
-                    cout << '\t' << itr->first<< '\t' << itr->second << '\n'; 
-                }
 
+                seeder_list.insert({SHA_string,client_IP});
+
+                std::fstream fout;
+
+                fout.open(seeder_file,ios_base::out|ios_base::app);
+                fout <<  SHA_string << ":" << client_IP << "\n";
+                
+                fout.close();
+                // cout<<"going inside\n";
+                // for (itr = seeder_list.lower_bound(SHA_string); itr != seeder_list.upper_bound(SHA_string); ++itr) 
+                // { 
+                //     cout << '\t' << itr->first<< '\t' << itr->second << '\n'; 
+                // }
 
 
             }
             else if(command=="get")
             {
+                string tempstr;
+                int counter=0;
                 cout<<"share command arrived\n";
                 
                 message=message.substr(found+1);
                 found = message.find('|');
                 SHA_string=message.substr(0,found);
+
+
                 for (itr = seeder_list.lower_bound(SHA_string); itr != seeder_list.upper_bound(SHA_string); ++itr) 
                 { 
-                    cout << '\t' << itr->first<< '\t' << itr->second << '\n'; 
+                    counter++;
+                    tempstr.append(itr->second);
+                    tempstr.append(":"); 
                 }
 
-
+                tempstr=tempstr.substr(0,tempstr.length()-1);
+                tempstr.insert(0,to_string(counter));
+                tempstr.insert(1,1,':');
+                send(new_socket, tempstr.c_str(), strlen(tempstr.c_str()), 0); 
 
             }
-            //client_Port=clientIP_Port.substr(found+1);
-            
-            // std::string token;
-            // while ((pos = s.find(delimiter)) != std::string::npos) {
-            //     token = s.substr(0, pos);
-            //     std::cout << token << std::endl;
-            //     s.erase(0, pos + delimiter.length());
-            // }
-
-            // if( send(new_socket, message, strlen(message), 0) != strlen(message) )   
-            // {   
-            //     perror("send");   
-            // }   
-                 
-            // puts("Welcome message sent successfully");   
              
 
 

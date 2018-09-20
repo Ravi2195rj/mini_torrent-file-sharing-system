@@ -36,13 +36,182 @@
 #include <fstream>
 #include <string>
 #include <sys/stat.h> 
+#include <thread> 
+#include <vector>
+#include<map>
 
 using namespace std;
-#define PORT 1314
+#define TRUE   1
 struct stat stat_buf;
 string clientIP_Port,tracker1IP_Port,tracker2IP_Port,logfile,client_IP,client_Port,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port,filesize;
 char* current_Path = getenv ("PWD");
 string currentpath=current_Path;
+int curser=0,commandmodeline=1,curser_column=15,flag=1;
+map <string,string> file_path;
+map <string,vector <string>> chunks;
+
+void act_as_server()
+{
+   // cout<<"hello from thread\n";
+    int opt = TRUE;   
+    int master_socket , addrlen , new_socket , client_socket[100] ,  
+          max_clients = 100 , activity, i , valread , sd;   
+    int max_sd;   
+    struct sockaddr_in address;   
+         
+    char buffer[1025];  //data buffer of 1K  
+         
+    //set of socket descriptors  
+    fd_set readfds;   
+         
+    //a message  
+    char *message = "ECHO Daemon v1.0 \r\n";   
+     
+    //initialise all client_socket[] to 0 so not checked  
+    for (i = 0; i < max_clients; i++)   
+    {   
+        client_socket[i] = 0;   
+    }   
+         
+    //create a master socket  
+    if( (master_socket = socket(AF_INET , SOCK_STREAM , 0)) == 0)   
+    {   
+        perror("socket failed");   
+        exit(EXIT_FAILURE);   
+    }   
+     
+    //set master socket to allow multiple connections ,  
+    //this is just a good habit, it will work without this  
+    if( setsockopt(master_socket, SOL_SOCKET, SO_REUSEADDR, (char *)&opt,  
+          sizeof(opt)) < 0 )   
+    {   
+        perror("setsockopt");   
+        exit(EXIT_FAILURE);   
+    }   
+     
+    //type of socket created  
+    address.sin_family = AF_INET;   
+    address.sin_addr.s_addr = INADDR_ANY;   
+    address.sin_port = htons(stoi(client_Port));   
+         
+    //bind the socket to localhost port 1313  
+    if (bind(master_socket, (struct sockaddr *)&address, sizeof(address))<0)   
+    {   
+        perror("bind failed");   
+        exit(EXIT_FAILURE);   
+    }   
+ //   printf("Listener on port %d \n", stoi(client_Port));   
+         
+    //try to specify maximum of 100 pending connections for the master socket  
+    if (listen(master_socket, 100) < 0)   
+    {   
+        perror("listen");   
+        exit(EXIT_FAILURE);   
+    }   
+         
+    //accept the incoming connection  
+    addrlen = sizeof(address);   
+ //   puts("Waiting for connections ...");   
+         
+    while(TRUE)   
+    {   
+        //clear the socket set  
+        FD_ZERO(&readfds);   
+     
+        //add master socket to set  
+        FD_SET(master_socket, &readfds);   
+        max_sd = master_socket;   
+             
+        //add child sockets to set  
+        for ( i = 0 ; i < max_clients ; i++)   
+        {   
+            //socket descriptor  
+            sd = client_socket[i];   
+                 
+            //if valid socket descriptor then add to read list  
+            if(sd > 0)   
+                FD_SET( sd , &readfds);   
+                 
+            //highest file descriptor number, need it for the select function  
+            if(sd > max_sd)   
+                max_sd = sd;   
+        }   
+     
+        //wait for an activity on one of the sockets , timeout is NULL ,  
+        //so wait indefinitely  
+        activity = select( max_sd + 1 , &readfds , NULL , NULL , NULL);   
+       
+        if ((activity < 0) && (errno!=EINTR))   
+        {   
+            printf("select error");   
+        }   
+             
+        //If something happened on the master socket ,  
+        //then its an incoming connection  
+        if (FD_ISSET(master_socket, &readfds))   
+        {   
+            if ((new_socket = accept(master_socket,  
+                    (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)   
+            {   
+                perror("accept");   
+                exit(EXIT_FAILURE);   
+            }   
+             
+            //inform user of socket number - used in send and receive commands  
+            printf("New connection , socket fd is %d , ip is : %s , port : %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));   
+           
+            //send new connection greeting message  
+
+            valread=read( new_socket , buffer, 1024);
+            cout<<"hello"<<client_IP<<":message from client in thread:"<<buffer<<"\n";
+           
+            //add new socket to array of sockets  
+            for (i = 0; i < max_clients; i++)   
+            {   
+                //if position is empty  
+                if( client_socket[i] == 0 )   
+                {   
+                    client_socket[i] = new_socket;   
+                    printf("Adding to list of sockets as %d\n" , i);   
+                         
+                    break;   
+                }   
+            }   
+        }   
+             
+        //else its some IO operation on some other socket 
+        for (i = 0; i < max_clients; i++)   
+        {   
+            sd = client_socket[i];   
+                 
+            if (FD_ISSET( sd , &readfds))   
+            {   
+                //Check if it was for closing , and also read the  
+                //incoming message  
+                if ((valread = read( sd , buffer, 1024)) == 0)   
+                {   
+                    //Somebody disconnected , get his details and print  
+                    getpeername(sd , (struct sockaddr*)&address ,(socklen_t*)&addrlen); 
+                    printf("Host disconnected , ip %s , port %d \n" ,inet_ntoa(address.sin_addr) , ntohs(address.sin_port));   
+                         
+                    //Close the socket and mark as 0 in list for reuse  
+                    close( sd );   
+                    client_socket[i] = 0;   
+                }   
+                     
+                //Echo back the message that came in  
+                else 
+                {   
+                    //set the string terminating NULL byte on the end  
+                    //of the data read  
+                    buffer[valread] = '\0';   
+                    send(sd , buffer , strlen(buffer) , 0 );   
+                }   
+            }   
+        }   
+    }
+}
+
 string findname(string str1) //finding current directory
 {
     int i=str1.length()-1;
@@ -111,7 +280,7 @@ void findIP(string clientIP_Port,string tracker1IP_Port,string tracker2IP_Port)
     tracker2_Port=tracker2IP_Port.substr(found2+1);
 }
 
-int connection_with_tracker()
+int connection(string port,string ip_address)
 {
     struct sockaddr_in address; 
     int sock = 0, valread; 
@@ -127,10 +296,10 @@ int connection_with_tracker()
         memset(&serv_addr, '0', sizeof(serv_addr)); 
                    
         serv_addr.sin_family = AF_INET; 
-        serv_addr.sin_port = htons(PORT); 
+        serv_addr.sin_port = htons(stoi(port)); 
                        
     // Convert IPv4 and IPv6 addresses from text to binary form 
-    if(inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr)<=0)  
+    if(inet_pton(AF_INET, ip_address.c_str(), &serv_addr.sin_addr)<=0)  
     { 
         printf("\nInvalid address/ Address not supported \n"); 
         return -1; 
@@ -215,8 +384,9 @@ int main(int argc, char *argv[])
     // cout<<tracker2_IP<<"\n"<<flush;
     // cout<<tracker2_Port<<"\n"<<flush;
 
-        int curser=0,commandmodeline=1,curser_column=15,flag=1;
-        cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;      
+        thread th1(act_as_server); 
+
+        cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
         while(flag)
         { 
             
@@ -342,7 +512,12 @@ int main(int argc, char *argv[])
                                 tempsize-=1024*512;
                             }
 
+
+
                         fout << SH2.c_str();
+                        
+
+
                         //SH2.clear();
                         SHA1((unsigned char*)SH2.c_str(), strlen(SH2.c_str()), (unsigned char*)&digest);
 
@@ -350,7 +525,24 @@ int main(int argc, char *argv[])
                             sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
                         SH1=mdString;
                         SH1=SH1.substr(0,20);
+
+
                         cout<<SH1;
+
+                        file_path[SH1]=local_file_path;                                //storing file path in map with key as SHA.
+                      //  cout<<"in map:"<<file_path[SH1];
+                        
+                        tempsize=size/(1024*512);
+                        if(size%(1024*512)!=0)
+                            tempsize++;
+                    //    cout<<"tmp:"<<tempsize<<"\n";
+                        
+                        for(int i=0;i<tempsize;i++)
+                            chunks[SH1].push_back(to_string(i));
+                        // for(int i=0;i<tempsize;i++)
+                        //     cout<<chunks[SH1][i]<<" ";
+                        //cout<<"chunks:"<<chunks[SH1];
+
                         SH2.clear();
                         SH2="share|";
                         SH2.append(findname(local_file_path));
@@ -363,9 +555,18 @@ int main(int argc, char *argv[])
 
                       //  cout<<SH2;
                         //cout<<v[1]<<":"<<v[2];
-                   int sock=connection_with_tracker();
+                   int sock=connection(tracker1_Port,tracker1_IP);
                    send(sock,SH2.c_str(),1024,0);
                    printf("Message sent\n"); 
+                   close(sock);
+
+                       v.clear();
+                    cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
+                    cout<<"\e[2K"<<flush;
+                    statusbar("Enter Command:");
+
+                    curser=0,commandmodeline=1,curser_column=15;
+                    cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
                 //    valread=read( sock , buffer, 1024);
 
                 }
@@ -374,6 +575,8 @@ int main(int argc, char *argv[])
 
                         unsigned char digest[20];
                         char mdString[SHA_DIGEST_LENGTH*2];
+                        char tempbuffer[1024];
+                        string tempstr;
 
                         string SH1,SH2="get|";
                         std::fstream fin,fout;
@@ -389,7 +592,7 @@ int main(int argc, char *argv[])
                             getline(fin,SH1);
                         }
 
-                        cout<<SH1;
+                      //  cout<<SH1;
                         SHA1((unsigned char*)SH1.c_str(), strlen(SH1.c_str()), (unsigned char*)&digest); 
 
                         for (int i = 0; i <20; i++)
@@ -399,15 +602,80 @@ int main(int argc, char *argv[])
                         SH1=mdString;
                         //SH1.append(mdString);
                         SH1=SH1.substr(0,20);
+
+                       
+
                         SH1.insert(0,"get|");
                         //SH1.insert(0,"get|");
                         //SH2.append(SH1);
-                        cout<<SH1<<"\n";
-                        int sock=connection_with_tracker();
+                   //     cout<<SH1<<"\n";
+                        int sock=connection(tracker1_Port,tracker1_IP);
                         send(sock,SH1.c_str(),1024,0);
                         printf("Message sent\n"); 
 
-                        //string s;
+                        read( sock , tempbuffer, 1024);
+                        cout<<"reading seeder list: "<<tempbuffer;
+                        close(sock);
+
+                        int no_of_seeder=0;
+                        vector <string> seeder_ip;
+                        vector <string> seeder_port;
+                        string seeder;
+                        seeder=tempbuffer;
+                        cout<<"\n"<<seeder;
+
+                        no_of_seeder=seeder[0]-'0'; 
+                        cout<<no_of_seeder;
+                        seeder=seeder.substr(2);
+                        cout<<"\n"<<seeder;
+                        for(int i=0;i<no_of_seeder*2;i++)
+                        {
+                            size_t found = seeder.find(':');
+                            if(i%2==0)
+                                seeder_ip.push_back(seeder.substr(0,found));
+                            else
+                                seeder_port.push_back(seeder.substr(0,found));
+                            if(i!=no_of_seeder*2-1)
+                                seeder=seeder.substr(found+1);
+                        }
+                        for(i=0;i<seeder_ip.size();i++)
+                        {
+                            cout<<"connecting:";
+                            sock=connection(seeder_port[i],seeder_ip[i]);
+                        }
+
+                            
+                        // size_t found = clientIP_Port.find(':');
+                        // client_IP=clientIP_Port.substr(0,found);
+                        // client_Port=clientIP_Port.substr(found+1);
+                        // sock=connection();
+                        // send(sock,SH1.c_str(),1024,0);
+                        // printf("Message sent\n");
+
+
+                        v.clear();
+                        cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
+                        cout<<"\e[2K"<<flush;
+                        statusbar("Enter Command:");
+                        curser=0,commandmodeline=1,curser_column=15;
+                        cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
+                        }
+
+                 }
+
+
+                
+
+
+
+         } 
+         buffer[0]=buffer[1]=buffer[2]=0;
+           
+    return 0;
+}
+
+
+                    //string s;
                         //s << (5);
 
                        // cout<<SHA1;
@@ -484,23 +752,3 @@ int main(int argc, char *argv[])
                 //    send(sock,SH2.c_str(),1024,0);
                 //    printf("Message sent\n"); 
                 // //    valread=read( sock , buffer, 1024);
-
-                 }
-
-
-
-                v.clear();
-                cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
-                cout<<"\e[2K"<<flush;
-                statusbar("Enter Command:");
-
-                curser=0,commandmodeline=1,curser_column=15;
-                cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
-
-
-
-         } 
-         buffer[0]=buffer[1]=buffer[2]=0;
-         }  
-    return 0;
-}
