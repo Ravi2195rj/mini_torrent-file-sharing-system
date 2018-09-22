@@ -254,9 +254,11 @@ int main(int argc , char *argv[])
                 }
 
                 tempstr=tempstr.substr(0,tempstr.length()-1);
-                tempstr.insert(0,to_string(counter));
-                tempstr.insert(1,1,':');
-                send(new_socket, tempstr.c_str(), strlen(tempstr.c_str()), 0); 
+                string temp=to_string(counter);
+                temp=temp+":"+tempstr;
+                // tempstr.insert(0,to_string(counter));
+                // tempstr.insert(1,1,':');
+                send(new_socket, temp.c_str(), strlen(tempst.c_str()), 0); 
 
             }
              
