@@ -1,7 +1,7 @@
 //Roll No.: 2018201018
 //Name: Ravi Jakhania
 
-//#include "assignment1.h"
+//#include "assignment2.h"
 #include <stdio.h> 
 #include <iostream>
 #include <fstream>
@@ -13,45 +13,44 @@
 #include <arpa/inet.h>
 #include <sys/stat.h> 
 #include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <dirent.h>
 #include <time.h>
 #include <pwd.h>
 #include <grp.h>
-#include <string.h>
 #include <termios.h>
 #include <stack>
 #include <vector>
 #include <string>
-#include <fstream>
 #include <iostream>
 #include <ftw.h>
 #include <sys/ioctl.h>
 #include <openssl/sha.h>
-#include <iostream>
-#include <string.h>
-#include <fstream>
-#include <string>
-#include <sys/stat.h> 
 #include <thread> 
-#include <vector>
 #include<map>
 #include <algorithm>
 #include <mutex> 
+#include <signal.h>
 using namespace std;
 #define TRUE   1
 
 struct stat stat_buf;
-string clientIP_Port,tracker1IP_Port,tracker2IP_Port,logfile,client_IP,client_Port,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port,filesize;
+string clientIP_Port,tracker1IP_Port,tracker2IP_Port,logfile,client_IP,client_Port,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port,filesize,mtorrentfile="./mtorrentsclient.txt";
 char* current_Path = getenv ("PWD");
 string currentpath=current_Path;
 int curser=0,commandmodeline=1,curser_column=15,flag=1;
 map <string,string> file_path;
+map <string,string> mtorrent_filepath;
 map <string,string> chunks;
+map <string,string> show_download_list;
+map<string,string>::iterator it;
 std::mutex mtx;
+std::fstream fmtorrent;
+int pflag=0;
+void sig_handler(int sig)
+{
+    ;
+}
+                        
 string findname(string str1) //finding current directory
 {
     int i=str1.length()-1;
@@ -147,50 +146,48 @@ void getting_chunks(string SH2,vector <int> &final_chunks_getting,string seeder_
 {
     string tempstr=SH2;                                          //SH2
                             //cout<<i;
-        string temp;
-        char chn[1024];
-                            //cout<<"connecting:";
-        int sock=connection(seeder_port,seeder_ip);              
-        tempstr.insert(0,"chunks:");
-                            //cout<<tempstr;
-                           // cout<<"sending";
-        send(sock,tempstr.c_str(),1024,0);
-                            //cout<<"readnig";
-        read( sock , chn, 1024);
-                           // cout<<"after reading";
-        temp=chn;
-                          //  cout<<"getting chunks"<<temp<<"end"<<"\n";
-        int k;
+    string temp;
+    int sock=connection(seeder_port,seeder_ip);              
+    tempstr.insert(0,"chunks:");
+          
+    send(sock,tempstr.c_str(),1024,0);
+        
+    int size,read_bytes=0;
+    read(sock,&size,sizeof(size));
+    char chn[size];
+    while(read_bytes<size)
+    {
+        //  cout<<"reading chunks:"<<"\n";
+        read_bytes+=read( sock , chn, size);
+    }
+    
+    temp=chn;
+    
+    int k;
                             
-        while(temp.length()!=0)
+    while(temp.length()!=0)
+    {
+
+        size_t found = temp.find(':');
+        if(found!=std::string::npos)
         {
-
-                               // cout<<temp<<"\n";
-            size_t found = temp.find(':');
-            if(found!=std::string::npos)
-            {
-                final_chunks_getting.push_back(stoi(temp.substr(0,found)));
-                                 //   cout<<"happening\n";
-                temp=temp.substr(found+1);
-                               //     cout<<temp<<"\n";
-                                    
-            }
-            else
-            {
-                final_chunks_getting.push_back(stoi(temp));
-                break;
-            }
-                                
+            final_chunks_getting.push_back(stoi(temp.substr(0,found)));
+            temp=temp.substr(found+1);
         }
+        else
+        {
+            final_chunks_getting.push_back(stoi(temp));
+            break;
+        }
+    }
+    // for(int j=0;j<final_chunks_getting.size();j++)
+    //     cout<<final_chunks_getting[j]<<" ";
 
-        for(int j=0;j<final_chunks_getting.size();j++)
-            cout<<final_chunks_getting[j]<<" ";
-
-        sort(final_chunks_getting.begin(),final_chunks_getting.end());
-
-        close(sock);
+    sort(final_chunks_getting.begin(),final_chunks_getting.end());
+    close(sock);
 }
-void download_chunks(string IP,string Port,vector <int> &client_chunk,string destination_filepath,string hash,fstream& fout)
+
+void download_chunks(string IP,string Port,vector <int> &client_chunk,string destination_filepath,string hash,fstream& fout,string mtorrent_path)
 {
     for(int i=0;i<client_chunk.size();i++)
     {   
@@ -200,11 +197,8 @@ void download_chunks(string IP,string Port,vector <int> &client_chunk,string des
         message.append(hash);
         message.append(":");
         message.append(to_string(client_chunk[i]));
-        cout<<message<<"\n";
        
         send(sock,message.c_str(),1024,0);
-        
-        cout<<"chunks:"<<client_chunk[i]<<":"<<flush;
         
         int size,no_of_byes_read=0;
         int read_bytes=read(sock,&size,sizeof(size));
@@ -212,24 +206,47 @@ void download_chunks(string IP,string Port,vector <int> &client_chunk,string des
         mtx.lock();        
         fout.seekp (client_chunk[i]*512*1024, fout.beg);
         
-        cout<<fout.tellp()<<":"<<flush;
-        //mtx.unlock();
-        cout<<size<<":"<<flush;
-       
-        
-        
-
         while (no_of_byes_read<size) 
         {
-            cout<<"reading";
             char buffer[512*1024];
             int val=read(sock,buffer,512*1024);
-            cout<<val<<"\n";
             no_of_byes_read+=val;
-          //  mtx.lock();
             fout.write(buffer,val);
-            
         }
+
+        it =chunks.find(hash);
+        if (it == chunks.end())
+        {
+            file_path[hash]=destination_filepath;
+            chunks[hash]=to_string(client_chunk[i]);
+            string str="share";
+            str=str+"|"+destination_filepath+"|"+hash+"|"+client_IP+"|"+client_Port+"\0";
+            int new_sock=connection(tracker1_Port,tracker1_IP);
+            int size=strlen(str.c_str());
+            send(new_sock,&size,sizeof(size),0);
+            send(new_sock,str.c_str(),size,0);
+            close(new_sock);         
+        }
+        else
+        {
+            string str=chunks[hash];
+            str.append(":");
+            str.append(to_string(client_chunk[i]));
+            chunks[hash]=str;
+        }
+        
+        it =show_download_list.find(hash);
+        if (it == show_download_list.end())
+        {
+            show_download_list[hash]="[D] "+destination_filepath;
+        }
+        
+        it =mtorrent_filepath.find(hash);
+        if (it == mtorrent_filepath.end())
+        {
+            mtorrent_filepath[hash]=mtorrent_path;
+        }
+        
         mtx.unlock();
         close(sock);
         
@@ -249,31 +266,34 @@ void upload_chunks(string SHA_chunk_string,int socket)
     std::fstream fin;
     fin.open(path_of_file, ios_base::in|ios_base::binary);
 
-    cout<<"chunks to be send"<<SHA_chunk_string;
+    //cout<<"chunks to be send"<<SHA_chunk_string;
 
     char buffer1[512*1024];
     int size;
     fin.seekg (stoi(SHA_chunk_string)*512*1024, fin.beg);
-    cout<<fin.tellg()<<":";
+    //cout<<fin.tellg()<<":";
                                     
     fin.read(buffer1,1024*512);
                                     
     size=fin.gcount();
-    cout<<fin.gcount()<<"\n";
+   // cout<<fin.gcount()<<"\n";
                                     
                                     
     send(socket,&size,sizeof(size),0);
     
     send(socket,buffer1,size,0);
-     fin.close();
+    fin.close();
 }
 void sharing(vector <string> v)
 {
 
     string local_file_path=makefullpath(v[1],currentpath);
-    string filename_with_extension=v[2];
-    cout<<filename_with_extension;
-    cout<<local_file_path<<":"<<filename_with_extension<<":";
+    string filename_with_extension=makefullpath(v[2],currentpath);
+
+    fmtorrent << local_file_path << "|" << filename_with_extension << "\n";
+
+    // cout<<"\n"<<"local file path: "<<local_file_path<<"\n";
+    // cout<<"mtorrent file path"<<filename_with_extension<<"\n";
     stat(local_file_path.c_str(),&stat_buf);
                         
     int size=stat_buf.st_size;
@@ -337,8 +357,12 @@ void sharing(vector <string> v)
     SH1=mdString;
     SH1=SH1.substr(0,20);
 
-    cout<<SH1;
-    file_path[SH1]=local_file_path;                                //storing file path in map with key as SHA.
+
+
+    // cout<<"hash: "<<SH1<<"\n";
+    file_path[SH1]=local_file_path;
+    mtorrent_filepath[SH1]=filename_with_extension;
+    //cout<<mtorrent_filepath[SH1]<<"\n";                                //storing file path in map with key as SHA.
                       //  cout<<"in map:"<<file_path[SH1];
     tempsize=size/(1024*512);
     if(size%(1024*512)!=0)
@@ -354,7 +378,7 @@ void sharing(vector <string> v)
 
     chunks[SH1]=temp;
                         
-    cout<<"chunks:"<<chunks[SH1];
+    // cout<<"chunks:"<<chunks[SH1]<<"\n";
 
     SH2.clear();
     SH2="share|";
@@ -365,24 +389,33 @@ void sharing(vector <string> v)
     SH2.append(client_IP);
     SH2.append("|");
     SH2.append(client_Port);
-
+    SH2.append("\0");
                       //  cout<<SH2;
                         //cout<<v[1]<<":"<<v[2];
-    int size=strlen(SH2.c_str());
+    int size1=strlen(SH2.c_str());
+
     int sock=connection(tracker1_Port,tracker1_IP);
-    send(sock,&size,sizeof(size),0);
-    send(sock,SH2.c_str(),size,0);
+    send(sock,&size1,sizeof(size1),0);
+    send(sock,SH2.c_str(),size1,0);
+    // cout<<"message: "<<SH2<<"\n";
     printf("Message sent\n"); 
-    close(sock);
+    
     fin.close();
     fout.close();
+    close(sock);
+    v.clear();
+    cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
+    cout<<"\e[2K"<<flush;
+    statusbar("Enter Command:");
+    curser=0,commandmodeline=1,curser_column=15;
+    cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
 }
 
 void getting(vector <string> v)
 {
     unsigned char digest[20];
     char mdString[SHA_DIGEST_LENGTH*2];
-    char tempbuffer[1024];
+    char tempbuffer[1024*1024];
     string tempstr;
     string SH1,SH2;
     
@@ -391,6 +424,7 @@ void getting(vector <string> v)
     string mtorrent_file_path=makefullpath(v[1],currentpath);
     string destinstion_path=makefullpath(v[2],currentpath);
 
+    fmtorrent << destinstion_path << "|" << mtorrent_file_path << "\n";
 
     fin.open(mtorrent_file_path,ios_base::in|ios_base::binary);
 
@@ -414,12 +448,15 @@ void getting(vector <string> v)
                        
 
     SH1.insert(0,"get|");
-               
+    SH1.append("\0");
+
     int sock=connection(tracker1_Port,tracker1_IP);
-    send(sock,SH1.c_str(),1024,0);
+    int size1=strlen(SH1.c_str());
+    send(sock,&size1,sizeof(size1),0);        
+    send(sock,SH1.c_str(),size1,0);
                      //   printf("Message sent\n"); 
 
-    read( sock , tempbuffer, 1024);
+    read( sock , tempbuffer, 1024*1024);
                      //   cout<<"reading seeder list: "<<tempbuffer;
     close(sock);
 
@@ -428,12 +465,12 @@ void getting(vector <string> v)
     vector <string> seeder_port;
     string seeder;
     seeder=tempbuffer;
-    cout<<"\n"<<seeder;
+//    cout<<"\n"<<seeder;
 
     no_of_seeder=seeder[0]-'0'; 
                      //   cout<<"seeder"<<no_of_seeder;
     seeder=seeder.substr(2);
-    cout<<"\n"<<seeder;
+   // cout<<"\n"<<seeder;
     for(int i=0;i<no_of_seeder*2;i++)
     {
         size_t found = seeder.find(':');
@@ -445,7 +482,7 @@ void getting(vector <string> v)
             seeder=seeder.substr(found+1);
     }
 
-    cout<<seeder_ip.size();
+//    cout<<seeder_ip.size();
     std::vector<int> final_chunks_getting[no_of_seeder];           //ggggggggggggggg
     std::vector<int> final_chunks_downloading[no_of_seeder];           
     std::thread mythread[no_of_seeder];  
@@ -471,6 +508,7 @@ void getting(vector <string> v)
     fin.close();
 
     fout.open(destinstion_path,ios_base::out);
+    //file_path[SH2]=destinstion_path;
                         // fout.seekp(stoi(size)-1);
                         // fout << 'a';
                         // fout.close();
@@ -479,17 +517,17 @@ void getting(vector <string> v)
     if(stoi(size)%(512*1024)!=0)
         no_of_chunks++;
 
-    cout<<"chunks from mtorrent:"<<no_of_chunks<<"\n";
+    // cout<<"chunks from mtorrent:"<<no_of_chunks<<"\n";
     int visited_chunks[no_of_chunks]={0,0};
     int temp_num_of_chunks=no_of_chunks;
     int seeder_pointer[no_of_seeder]={0,0};
 
-    for(int i=0;i<no_of_seeder;i++)
-    {
-        for(int j=0; j<final_chunks_getting[i].size();j++)
-            cout<<final_chunks_getting[i][j]<<" ";
-        cout<<"\n";
-    }
+    // for(int i=0;i<no_of_seeder;i++)
+    // {
+    //     for(int j=0; j<final_chunks_getting[i].size();j++)
+    //         cout<<final_chunks_getting[i][j]<<" ";
+    //     cout<<"\n";
+    // }
                      
     while(temp_num_of_chunks>0)
     {
@@ -506,7 +544,7 @@ void getting(vector <string> v)
             {
                 visited_chunks[final_chunks_getting[i][j]]=1;   
                 final_chunks_downloading[i].push_back(final_chunks_getting[i][j]);
-                cout<<final_chunks_getting[i][j]<<"\n";
+                //cout<<final_chunks_getting[i][j]<<"\n";
                 seeder_pointer[i]++;
                 temp_num_of_chunks--;
             }
@@ -515,29 +553,28 @@ void getting(vector <string> v)
                 i=no_of_seeder;
         }    
     }
-    cout<<"final chunks\n";
-    for(int i=0;i<no_of_seeder;i++)
-    {
-        for(int j=0; j<final_chunks_downloading[i].size();j++)
-            cout<<final_chunks_downloading[i][j]<<" ";
-        cout<<"\n";
-    }
+    // cout<<"final chunks\n";
+    // for(int i=0;i<no_of_seeder;i++)
+    // {
+    //     for(int j=0; j<final_chunks_downloading[i].size();j++)
+    //         cout<<final_chunks_downloading[i][j]<<" ";
+    //     cout<<"\n";
+    // }
 
     std::thread my1thread [no_of_seeder];
     for(int i=0;i<no_of_seeder;i++)
     {
-        cout<<SH2<<"\n";
-        my1thread[i]=std::thread(download_chunks,seeder_ip[i],seeder_port[i],std::ref(final_chunks_downloading[i]),destinstion_path,SH2,std::ref(fout));
-      //  download_chunks(seeder_ip[i],seeder_port[i],final_chunks_downloading[i],destinstion_path,SH2,fout);
-                     // calling new thread;
-        //d1.detach();
+      //  cout<<SH2<<"\n";
+        my1thread[i]=std::thread(download_chunks,seeder_ip[i],seeder_port[i],std::ref(final_chunks_downloading[i]),destinstion_path,SH2,std::ref(fout),mtorrent_file_path);
     }
+
     for(int i=0;i<no_of_seeder;i++)
     {
         my1thread[i].join();
     }
+    show_download_list[SH2]="[S] "+destinstion_path;   
     fout.close();
-
+   // cout<<show_download_list[SH2]<<"\n";
     v.clear();
     cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
     cout<<"\e[2K"<<flush;
@@ -549,6 +586,7 @@ void getting(vector <string> v)
 
 void act_as_server()
 {
+   // signal(SIGUSR1, sig_handler);
    // cout<<"hello from thread\n";
     int opt = TRUE;   
     int master_socket , addrlen , new_socket , client_socket[100] ,  
@@ -562,7 +600,7 @@ void act_as_server()
     fd_set readfds;   
          
     //a message  
-    char *message = "ECHO Daemon v1.0 \r\n";   
+    //char *message = "ECHO Daemon v1.0 \r\n";   
      
     //initialise all client_socket[] to 0 so not checked  
     for (i = 0; i < max_clients; i++)   
@@ -638,6 +676,8 @@ void act_as_server()
         //so wait indefinitely  
         activity = select( max_sd + 1 , &readfds , NULL , NULL , NULL);   
        
+        if(pflag)
+            return;       
         if ((activity < 0) && (errno!=EINTR))   
         {   
             printf("select error");   
@@ -655,12 +695,12 @@ void act_as_server()
             }   
              
             //inform user of socket number - used in send and receive commands  
-            printf("New connection , socket fd is %d , ip is : %s , port : %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));   
+         //   printf("New connection , socket fd is %d , ip is : %s , port : %d\n" , new_socket , inet_ntoa(address.sin_addr) , ntohs(address.sin_port));   
            
             //send new connection greeting message  
 
             valread=read( new_socket , buffer, 1024);
-            cout<<"hello"<<client_IP<<":message from client in thread:"<<buffer<<"\n";
+         //   cout<<"hello"<<client_IP<<":message from client in thread:"<<buffer<<"\n";
             string command;
             string message=buffer;
             //std::string delimiter = "|";
@@ -671,12 +711,14 @@ void act_as_server()
             if(command=="chunks")
             {
                 message=message.substr(found+1);
-                send(new_socket, chunks[message].c_str(), strlen(chunks[message].c_str()), 0);
+                int size=strlen(chunks[message].c_str());
+                send(new_socket,&size,sizeof(size),0);
+                send(new_socket, chunks[message].c_str(),size, 0);
             }
             else if(command=="download")
             {
                 message=message.substr(found+1);
-                cout<<"request for download:";
+               // cout<<"request for download:";
                 upload_chunks(message,new_socket);
             }
            
@@ -687,13 +729,14 @@ void act_as_server()
                 if( client_socket[i] == 0 )   
                 {   
                     client_socket[i] = new_socket;   
-                    printf("Adding to list of sockets as %d\n" , i);   
+                   // printf("Adding to list of sockets as %d\n" , i);   
                          
                     break;   
                 }   
             }   
         }   
-             
+        else
+        {     
         //else its some IO operation on some other socket 
         for (i = 0; i < max_clients; i++)   
         {   
@@ -707,7 +750,7 @@ void act_as_server()
                 {   
                     //Somebody disconnected , get his details and print  
                     getpeername(sd , (struct sockaddr*)&address ,(socklen_t*)&addrlen); 
-                    printf("Host disconnected , ip %s , port %d \n" ,inet_ntoa(address.sin_addr) , ntohs(address.sin_port));   
+                   // printf("Host disconnected , ip %s , port %d \n" ,inet_ntoa(address.sin_addr) , ntohs(address.sin_port));   
                          
                     //Close the socket and mark as 0 in list for reuse  
                     close( sd );   
@@ -723,6 +766,7 @@ void act_as_server()
                     send(sd , buffer , strlen(buffer) , 0 );   
                 }   
             }   
+        }
         }   
     }
 }
@@ -768,6 +812,7 @@ void gotoNonCanon() //going to non canon
 
 int main(int argc, char *argv[])
 {
+    
     gotoNonCanon(); //Going to Non Canon mode.
     
     cout<<"\033[3J";
@@ -775,31 +820,17 @@ int main(int argc, char *argv[])
    
     statusbar("Enter Command:");
     cout<<" ";
-    // char* current_Path;
-    // current_Path = getenv ("PWD");
-    // string currentpath=current_Path;
-    //cout<<current_Path<<flush;
     
     clientIP_Port=argv[1];
     tracker1IP_Port=argv[2];
     tracker2IP_Port=argv[3];
     
-    //logfile=argv[4];
     
     findIP(clientIP_Port,tracker1IP_Port,tracker2IP_Port);
 
-    // cout<<clientIP_Port<<"\n"<<flush;
-    // cout<<tracker1IP_Port<<"\n"<<flush;
-    // cout<<tracker2IP_Port<<"\n"<<flush;
-    
-    
-    // cout<<client_IP<<"\n"<<flush;
-    // cout<<client_Port<<"\n"<<flush;
-    // cout<<tracker1_IP<<"\n"<<flush;
-    // cout<<tracker1_Port<<"\n"<<flush;
-    // cout<<tracker2_IP<<"\n"<<flush;
-    // cout<<tracker2_Port<<"\n"<<flush;
-
+   // cout<<mtorrentfile;
+   // fmtorrent.open(mtorrentfile,ios_base::out|ios_base::app);
+   // fmtorrent << client_IP;
     thread th1(act_as_server); 
 
     cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
@@ -862,7 +893,7 @@ int main(int argc, char *argv[])
             v.push_back(s);
             cout<<"\n"<<flush;
             cout<<"\e[2K"<<flush;
-            cout<<v[1]<<" "<<v[2]<<"\n";
+           // cout<<v[1]<<" "<<v[2]<<"\n";
             if(v[0]=="share")
             {
                // sharing(v);
@@ -877,13 +908,104 @@ int main(int argc, char *argv[])
                 std::thread t2(getting,v);
                 t2.detach();
             }
-            v.clear();
-    cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
-    cout<<"\e[2K"<<flush;
-    statusbar("Enter Command:");
+            if(v[0]=="show" && v[1]=="downloads")
+            {
+               // getting(v);
 
-    curser=0,commandmodeline=1,curser_column=15;
-    cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
+                //cout<<"\n";
+                for(map<string,string>::const_iterator itr =show_download_list.begin();itr != show_download_list.end(); ++itr)
+                {
+                    cout << itr->second<< "\n";
+                }
+            }
+            if(v[0]=="show" && v[1]=="mtorrents")
+            {
+               // getting(v);
+
+               cout<<"\n";
+                for(map<string,string>::const_iterator itr =mtorrent_filepath.begin();itr != mtorrent_filepath.end(); ++itr)
+                {
+                    cout << itr->second<< "\n";
+                }
+            }
+            if(v[0]=="remove")
+            {
+               // getting(v);
+                unsigned char digest[20];
+                char mdString[SHA_DIGEST_LENGTH*2];
+                char tempbuffer[1024*1024];
+                string tempstr;
+                string SH1,SH2;
+                
+                std::fstream fin,fout;
+
+                string mtorrent_file_path=makefullpath(v[1],currentpath);
+
+
+                fin.open(mtorrent_file_path,ios_base::in|ios_base::binary);
+
+                for (int i=0; i<5;i++)
+                {
+                    getline(fin,SH1);
+                }
+                
+                fin.close();
+                                  //  cout<<SH1;
+                SHA1((unsigned char*)SH1.c_str(), strlen(SH1.c_str()), (unsigned char*)&digest); 
+
+                for (int i = 0; i <20; i++)
+                    sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
+                                    
+                                    
+                SH1=mdString;
+                                    //SH1.append(mdString);
+                SH1=SH1.substr(0,20);
+                SH2=SH1;
+                    
+                //cout<<"\n"<<show_download_list[SH2]<<"\n";
+                while(show_download_list[SH2].substr(0,3)=="[D]");                               
+
+                SH1.insert(0,"remove|");
+                SH1=SH1+"|"+client_IP+"|"+client_Port;
+                SH1.append("\0");
+
+//                cout<<"\n"<<SH1<<"\n";
+
+                int sock=connection(tracker1_Port,tracker1_IP);
+                int size1=strlen(SH1.c_str());
+                send(sock,&size1,sizeof(size1),0);        
+                send(sock,SH1.c_str(),size1,0);
+                close(sock);
+               
+                it =mtorrent_filepath.find(SH2);
+                if (it != mtorrent_filepath.end())
+                {
+                   // cout<<"in removing\n";
+                    mtorrent_filepath.erase(it);
+                }
+                remove(mtorrent_file_path.c_str());
+            }
+            if(v[0]=="exit")
+            {
+                string message="delete|"+client_IP+":"+client_Port;
+                //cout<<message;
+                int sock=connection(tracker1_Port,tracker1_IP);
+                int size1=strlen(message.c_str());
+                send(sock,&size1,sizeof(size1),0);        
+                send(sock,message.c_str(),size1,0);
+                close(sock);
+
+                flag=0;
+
+            }
+
+            v.clear();
+            cout<<"\033["<<commandmodeline<<";"<<1<<"H"<<flush;   
+            cout<<"\e[2K"<<flush;
+            statusbar("Enter Command:");
+
+            curser=0,commandmodeline=1,curser_column=15;
+            cout<<"\033["<<commandmodeline<<";"<<curser_column<<"H"<<flush;
     // fin.close();
     // fout.close();
 
@@ -891,85 +1013,10 @@ int main(int argc, char *argv[])
 
         buffer[0]=buffer[1]=buffer[2]=0;
     } 
-           
+    fmtorrent.close();   
+    pflag=1;
+    pthread_kill(th1.native_handle(), SIGUSR1);
+    signal(SIGUSR1, sig_handler);
     return 0;
 }
 
-
-                    //string s;
-                        //s << (5);
-
-                       // cout<<SHA1;
-                //         stat(local_file_path.c_str(),&stat_buf);
-                        
-                //         int size=stat_buf.st_size;
-                //         int tempsize=size;
-                        
-                //         filesize=to_string(size);
-                        
-                //         unsigned char digest[20];
-                //         char mdString[SHA_DIGEST_LENGTH*2];
-                        
-                //         string SH1, SH2;
-                //         std::fstream fin,fout;
-                        
-                //         fin.open(local_file_path, ios_base::in|ios_base::binary);
-                //         fout.open(filename_with_extension, ios_base::out);
-
-                //         fout << tracker1_IP.c_str() << ":";
-                //         fout << tracker1_Port.c_str() << "\n";
-                //         fout << tracker2_IP.c_str() << ":";
-                //         fout << tracker2_Port.c_str() << "\n";
-                //         fout << local_file_path.c_str() << "\n";
-                //         fout << filesize.c_str() << "\n";
-
-
-                //         while (tempsize>0) 
-                //             {   
-
-                //                 if(tempsize>1024*512)
-                //                 {
-                //                     char buffer[1024*512];
-                //                     fin.read(buffer,1024*512);
-                //                     SHA1((unsigned char*)&buffer, strlen(buffer), (unsigned char*)&digest); 
-                //                     for (int i = 0; i <20; i++)
-                //                         sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
-                //                     SH1=mdString;
-                //                     SH2.append(SH1.substr(0,20));                  
-                //                 }
-                //                 else
-                //                 {
-                //                     char buffer[tempsize];
-                //                     fin.read(buffer,tempsize);
-                //                     SHA1((unsigned char*)&buffer, strlen(buffer), (unsigned char*)&digest); 
-                //                     for (int i = 0; i <20; i++)
-                //                         sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
-                //                     SH1=mdString;
-                //                     SH2.append(SH1.substr(0,20)); 
-                //                 }
-                //                 tempsize-=1024*512;
-                //             }
-
-                //         fout << SH2.c_str();
-                //         //SH2.clear();
-                //         SHA1((unsigned char*)SH2.c_str(), strlen(SH2.c_str()), (unsigned char*)&digest); 
-                //         for (int i = 0; i <20; i++)
-                //             sprintf(&mdString[i*2], "%02x", (unsigned int)digest[i]);
-                //         SH1=mdString;
-                //         //cout<<SH1;
-                //         SH2.clear();
-                //         SH2="share|";
-                //         SH2.append(findname(local_file_path));
-                //         SH2.append("|");
-                //         SH2.append(SH1);
-                //         SH2.append("|");
-                //         SH2.append(client_IP);
-                //         SH2.append("|");
-                //         SH2.append(client_Port);
-
-                //         cout<<SH2;
-                //         //cout<<v[1]<<":"<<v[2];
-                //    int sock=connection_with_tracker();
-                //    send(sock,SH2.c_str(),1024,0);
-                //    printf("Message sent\n"); 
-                // //    valread=read( sock , buffer, 1024);
