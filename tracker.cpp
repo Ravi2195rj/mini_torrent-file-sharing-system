@@ -27,7 +27,22 @@ multimap <string, string> :: iterator itr;
 string SHA_string,client_IP,client_Port,filename,tracker1_IP,tracker1_Port,tracker2_IP,tracker2_Port,tracker1IP_Port,tracker2IP_Port;
 struct stat stat_buf;
 
-string seeder_file="./seeder_file.txt";
+string seeder_file="./";
+string log_file="./";
+
+void write_in_log(string message)
+{
+
+    time_t now = time(0);
+
+    string time = ctime(&now);
+    std::fstream fout;
+    fout.open(log_file,ios_base::out|ios_base::app);
+    
+    fout << message << " : " << time ;
+    fout.close();
+}
+
 
 void findIP(string tracker1IP_Port,string tracker2IP_Port)
 {
@@ -58,13 +73,13 @@ void update_seeder_list()
             seeder_list.insert({tempstr.substr(0,found),tempstr.substr(found+1)});
          //   ////cout<<tempstr.substr(0,found)<<" "<<tempstr.substr(found+1)<<"\n";
         }
-        for(auto itr = seeder_list.cbegin(); itr != seeder_list.cend(); ++itr)
-        {
-           // std::////cout << itr->first << " " << itr->second<< "\n";
-        }
+        // for(auto itr = seeder_list.cbegin(); itr != seeder_list.cend(); ++itr)
+        // {
+        //    // std::////cout << itr->first << " " << itr->second<< "\n";
+        // }
         fin.close();            
     }
-} 
+}
 void update_seeder_file()
 {
     //string tempstr;
@@ -94,13 +109,15 @@ int main(int argc , char *argv[])
 
     tracker1IP_Port=argv[1];
     tracker2IP_Port=argv[2];
+    seeder_file.append(argv[3]);
+    log_file.append(argv[4]);
+    
     findIP(tracker1IP_Port,tracker2IP_Port);
 
     update_seeder_list();
 
-    int opt = TRUE;   
-    int master_socket , addrlen , new_socket , client_socket[100] ,  
-          max_clients = 100 , activity, i , valread , sd;   
+    int opt = TRUE; 
+    int master_socket , addrlen , new_socket , client_socket[100] , max_clients = 100 , activity, i , valread , sd;   
     int max_sd;   
     struct sockaddr_in address;   
          
@@ -132,7 +149,7 @@ int main(int argc , char *argv[])
     {   
         perror("setsockopt");   
         exit(EXIT_FAILURE);   
-    }   
+    }
      
     //type of socket created  
     address.sin_family = AF_INET;   
@@ -195,8 +212,7 @@ int main(int argc , char *argv[])
         //then its an incoming connection  
         if (FD_ISSET(master_socket, &readfds))   
         {   
-            if ((new_socket = accept(master_socket,  
-                    (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)   
+            if ((new_socket = accept(master_socket, (struct sockaddr *)&address, (socklen_t*)&addrlen))<0)   
             {   
                 perror("accept");   
                 exit(EXIT_FAILURE);   
@@ -255,6 +271,7 @@ int main(int argc , char *argv[])
                 fout <<  SHA_string << ":" << client_IP << "\n";
                 
                 fout.close();
+                write_in_log("Client "+client_IP+" share SHA of mtorrent file");
                 // ////cout<<"going inside\n";
                 // for (itr = seeder_list.lower_bound(SHA_string); itr != seeder_list.upper_bound(SHA_string); ++itr) 
                 // { 
@@ -287,7 +304,8 @@ int main(int argc , char *argv[])
                 // tempstr.insert(0,to_string(counter));
                 // tempstr.insert(1,1,':');
 
-                send(new_socket, temp.c_str(), strlen(temp.c_str()), 0); 
+                send(new_socket, temp.c_str(), strlen(temp.c_str()), 0);
+                write_in_log("Client ask for seeder_list");
 
             }
             else if(command=="remove")
@@ -323,6 +341,7 @@ int main(int argc , char *argv[])
                     } 
                 }
                 update_seeder_file();
+                write_in_log("Client requests to remove it as seeder_list for given mtorrentfile");
                 // for (itr = seeder_list.lower_bound(SHA_string); itr != seeder_list.upper_bound(SHA_string); ++itr) 
                 // { 
                 //     if(itr->second==client_IP)
@@ -343,6 +362,7 @@ int main(int argc , char *argv[])
                 }
 
                 update_seeder_file();
+                write_in_log("Client "+message+" is closing off");
             }
              
 
